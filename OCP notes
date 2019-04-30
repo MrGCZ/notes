@@ -1,0 +1,49 @@
+checkpoint
+解释：checkpoint是数据库的内部事件，激活时会触发数据库写进程DBWR，将数据库缓冲区的脏数据块写到数据文件中。
+由于DBWR与事务提交的无关性，数据库在某个时刻会存在已提交的事务没有来得及写到磁盘上，而未提交的事务已经写到磁盘上，也就是内存中提交的数据和磁盘中的数据不一致。
+
+多个session同时修改一个块时，有的数据提交了有的没有，所以oracle不再区分这个块是否是提交的数据再提交到磁盘。
+
+作用：
+1）保证数据库的一致性，这是指将脏块写出到硬盘，保证内存和硬盘上的数据是一致的
+2）缩短实例恢复的时间，实例恢复需要把实例异常关闭前没有写出到硬盘的脏块通过日志进行恢复，如果脏块过多，实例恢复时间也会很长，检查点的发生可以减少脏块的数量，从而减少恢复时间。
+
+分类：
+1.完全检查点：full checkpoint
+记下当前的scn，将此scn之前的所有赃块一次写完，再将scn号同步更新控制文件和数据文件头。
+select file#,checkpoint_change# from v$datafile; 数据文件的scn
+select file#,checkpoint_change# from  v$datafile_header; 数据文件头的scn 只有这两个scn一致，数据库才能顺利打开 
+
+引起完全检查点的动作：1.正常关闭数据库 shutdown immediate 2.手动切换检查点：alter system checkpoint 
+
+2.增量检查点：incremental checkpoint
+1）不会更新数据文件头和控制文件的scn，它只是根据策略计算一个scn，将此scn之前的的脏块刷新到磁盘上。这个scn点也叫检查点位置，然后将与此scn有关的信息记录到控制文件。
+2）脏块按照首次变脏的时间顺序排列，DBWR每到一定的时机就会被触发，沿着检查点队列的顺序将脏块刷新到磁盘上。检查点位置之前的块，都是已被DBWR刷新到磁盘上的块。而最后的检查点位置，总是被记录在控制文件中。如果发生系统故障，最后一次的检查点位置就是实例恢复的起点（恢复的目的：恢复在内存中的数据）。
+3）当增量检查点发生时，会写一部分脏块使检查点位置前移，进而缩短实例恢复需要的日志起点和终点之间的距离。触发增量检查点越频繁，实例恢复时间越短，单增加I/O影响性能。
+
+相关参数：FAST_START_MTTR_TARGET  （show parameter fast_sta）
+默认900秒，当内存中产生dirty buffer所需的日志恢复时间。
+
+3.局部检查点：partial checkpoint
+
+
+
+数据字典
+静态视图
+dba_ 储存所有用户对象的信息 dba_objects
+all_ 储存当前用户可以访问的对象 包括user_和用户授权访问的对象 
+user_ 储存当前用户拥有的对象的相关信息
+
+动态性能表（v$）
+v$fixed_table可以查看所有动态视图的名称
+
+
+
+存储架构
+逻辑结构：database-tablespaces-segments-extents-blocks
+
+tablespaces
+分类：permanent，undo，temporary
+管理方式：segment段的管理方式有auto和manual，extent区管理方式有本地和字典（已淘汰）
+select tablespace_name,contents,extent_management,segment_space_management from dba_tablespaces;
+
